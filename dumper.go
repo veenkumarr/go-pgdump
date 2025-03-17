@@ -96,38 +96,23 @@ func (d *Dumper) DumpDatabase(outputFile string, opts *TableOptions) error {
 		}
 		wg.Wait()
 	}
-		// Replace slices.Chunk with chunkSlice
-	chunks := chunkSlice(tablename, d.Parallels)
-	g, _ := errgroup.WithContext(context.Background())
-	for _, chunk := range chunks {
-		g.SetLimit(len(chunk))
-		for _, table := range chunk {
-			table := table // capture the current value
-			g.Go(func() error {
-				records, err := getTableDataAsCSV(db, table)
-				if err != nil {
-					return err
-				}
-
-				f, err := os.Create(path.Join(outputDIR, table+".csv"))
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-
-				csvWriter := csv.NewWriter(f)
-				if err := csvWriter.WriteAll(records); err != nil {
-					return err
-				}
-				csvWriter.Flush()
-				return nil
-			})
-		}
-		if err := g.Wait(); err != nil {
-			return err
-		}
+	viewsSQL, err := scriptViews(db)
+	if err != nil {
+		return err
 	}
-	return nil
+	file.WriteString(viewsSQL)
+
+	funcsSQL, err := scriptFunctions(db)
+	if err != nil {
+		return err
+	}
+	file.WriteString(funcsSQL)
+
+	if err := writeFooter(file, info); err != nil {
+		return err
+	}
+
+	return nil		
 }
 
 func (d *Dumper) DumpDBToCSV(outputDIR, outputFile string, opts *TableOptions) error {
