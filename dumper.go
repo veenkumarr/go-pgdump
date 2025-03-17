@@ -158,13 +158,13 @@ func (d *Dumper) DumpDBToCSV(outputDIR, outputFile string, opts *TableOptions) e
 		return err
 	}
 
-	tablename, err := getTables(db, opts)
+	tables, err := getTables(db, opts)
 	if err != nil {
 		return err
 	}
 
 	// Replace slices.Chunk with chunkSlice
-	chunks := chunkSlice(tablename, d.Parallels)
+	chunks := chunkSlice(tables, d.Parallels)
 	g, _ := errgroup.WithContext(context.Background())
 	for _, chunk := range chunks {
 		g.SetLimit(len(chunk))
