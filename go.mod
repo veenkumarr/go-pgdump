@@ -1,4 +1,4 @@
-module github.com/JCoupalK/go-pgdump
+module github.com/veenkumarr/go-pgdump
 
 go 1.23.0
 
