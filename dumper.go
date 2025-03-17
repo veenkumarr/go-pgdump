@@ -184,6 +184,20 @@ func scriptTable(db *sql.DB, tableName string) (string, error) {
 	}
 	buffer = buffer + pkStmt + "\n\n"
 
+	// Script foreign keys
+	fkStmt, err := scriptForeignKeys(db, tableName)
+	if err != nil {
+		return "", fmt.Errorf("error scripting foreign keys for table %s: %v", tableName, err)
+	}
+	buffer = buffer + fkStmt + "\n\n"
+	
+	// Script for indexes
+	idxStmt, err := scriptIndexes(db, tableName)
+	buffer = buffer + idxStmt + "\n\n"
+	if err != nil {
+		return "", fmt.Errorf("error scripting index keys for table %s: %v", tableName, err)
+	}
+
 	// Dump table data
 	copyStmt, err := getTableDataCopyFormat(db, tableName)
 	if err != nil {
@@ -275,3 +289,58 @@ AND nsp.nspname = 'public';
 
 	return pksSQL.String(), nil
 }
+
+
+func scriptForeignKeys(db *sql.DB, tableName string) (string, error) {
+    var fksSQL strings.Builder
+    query := `
+SELECT con.conname AS constraint_name,
+       pg_get_constraintdef(con.oid) AS constraint_def
+FROM pg_constraint con
+JOIN pg_class rel ON rel.oid = con.conrelid
+JOIN pg_namespace nsp ON nsp.oid = connamespace
+WHERE con.contype = 'f' 
+AND rel.relname = $1
+AND nsp.nspname = 'public';
+`
+    rows, err := db.Query(query, tableName)
+    if err != nil {
+        return "", fmt.Errorf("error querying foreign keys: %v", err)
+    }
+    defer rows.Close()
+
+    for rows.Next() {
+        var constraintName, constraintDef string
+        if err := rows.Scan(&constraintName, &constraintDef); err != nil {
+            return "", err
+        }
+        fksSQL.WriteString(fmt.Sprintf("ALTER TABLE public.%s ADD CONSTRAINT %s %s;\n", tableName, constraintName, constraintDef))
+    }
+    return fksSQL.String(), nil
+}
+
+
+func scriptIndexes(db *sql.DB, tableName string) (string, error) {
+    var indexesSQL strings.Builder
+    query := `
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = $1 AND schemaname = 'public'
+AND indexname NOT LIKE '%_pkey';
+`
+    rows, err := db.Query(query, tableName)
+    if err != nil {
+        return "", fmt.Errorf("error querying indexes: %v", err)
+    }
+    defer rows.Close()
+
+    for rows.Next() {
+        var indexName, indexDef string
+        if err := rows.Scan(&indexName, &indexDef); err != nil {
+            return "", err
+        }
+        indexesSQL.WriteString(indexDef + ";\n")
+    }
+    return indexesSQL.String(), nil
+}
+
