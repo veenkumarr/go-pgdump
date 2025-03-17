@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +15,21 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func chunkSlice(slice []string, chunkSize int) [][]string {
+	if chunkSize <= 0 {
+		chunkSize = 1 // Avoid division by zero
+	}
+	var chunks [][]string
+	for i := 0; i < len(slice); i += chunkSize {
+		end := i + chunkSize
+		if end > len(slice) {
+			end = len(slice)
+		}
+		chunks = append(chunks, slice[i:end])
+	}
+	return chunks
+}
+
 type Dumper struct {
 	ConnectionString string
 	Parallels        int
@@ -23,10 +37,7 @@ type Dumper struct {
 }
 
 func NewDumper(connectionString string, threads int) *Dumper {
-	// Version number of go-pgdump, used in the template after a dump
 	dumpVersion := "0.2.1"
-
-	// set a default value for Parallels if it is zero or less
 	if threads <= 0 {
 		threads = 50
 	}
@@ -46,7 +57,6 @@ func (d *Dumper) DumpDatabase(outputFile string, opts *TableOptions) error {
 	}
 	defer file.Close()
 
-	// Template variables
 	info := DumpInfo{
 		DumpVersion:   d.DumpVersion,
 		ServerVersion: getServerVersion(db),
@@ -68,11 +78,11 @@ func (d *Dumper) DumpDatabase(outputFile string, opts *TableOptions) error {
 		mx sync.Mutex
 	)
 
-	chunks := slices.Chunk(tables, d.Parallels)
-	for chunk := range chunks {
+	// Replace slices.Chunk with chunkSlice
+	chunks := chunkSlice(tables, d.Parallels)
+	for _, chunk := range chunks {
 		wg.Add(len(chunk))
 		for _, table := range chunk {
-			//we can add the switch here for export and add a go func here.
 			go func(table string) {
 				defer wg.Done()
 				str, err := scriptTable(db, table)
@@ -106,7 +116,6 @@ func (d *Dumper) DumpDBToCSV(outputDIR, outputFile string, opts *TableOptions) e
 	}
 	defer file.Close()
 
-	// Template variables
 	info := DumpInfo{
 		DumpVersion:   d.DumpVersion,
 		ServerVersion: getServerVersion(db),
@@ -127,19 +136,19 @@ func (d *Dumper) DumpDBToCSV(outputDIR, outputFile string, opts *TableOptions) e
 		return err
 	}
 
-	chunks := slices.Chunk(tablename, d.Parallels)
+	// Replace slices.Chunk with chunkSlice
+	chunks := chunkSlice(tablename, d.Parallels)
 	g, _ := errgroup.WithContext(context.Background())
-	for chunk := range chunks {
+	for _, chunk := range chunks {
 		g.SetLimit(len(chunk))
 		for _, table := range chunk {
-			table := table // capture the current value of table for use in goroutine
+			table := table // capture the current value
 			g.Go(func() error {
 				records, err := getTableDataAsCSV(db, table)
 				if err != nil {
 					return err
 				}
 
-				// Correctly open (or create) the file for writing
 				f, err := os.Create(path.Join(outputDIR, table+".csv"))
 				if err != nil {
 					return err
